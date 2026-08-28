@@ -67,8 +67,17 @@ cp .env.example .env          # fill in the read-only DB password
 mysql < scripts/create_ro_user.sql
 python scripts/baseline.py    # replay fidelity + incumbent IC
 pytest tests/ -q
-./scripts/run_ui.sh           # UI on http://localhost:8200
+docker compose up -d --build  # UI on :8200, survives reboots
 ```
+
+`scripts/run_ui.sh` runs the same app ad hoc against the shrub-app image if you
+want it without a build.
+
+The UI binds all interfaces and is reachable across the LAN and VPN. **There is
+no authentication in front of it** — that matches how shrub's own debug ports
+are exposed, and it is why nothing here should be published beyond the local
+network. shrub's Caddy is LAN-only with an internal CA, so no part of this
+stack faces the internet.
 
 The UI shows the loop stage by stage, the incumbent's measured IC, and the
 per-day dispersion behind it. Stages that aren't built report `built: false`

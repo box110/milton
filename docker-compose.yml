@@ -1,0 +1,25 @@
+# Milton runs beside shrub, not inside it: its own compose project, its own
+# port, and a read-only DB user. It joins shrub's network only to reach the
+# database — nothing in shrub depends on milton being up.
+services:
+  ui:
+    build: .
+    restart: unless-stopped
+    # LAN/VPN only, matching how shrub's own debug ports are exposed. There is
+    # no auth in front of this, so do not publish it beyond the local network.
+    ports:
+      - "8200:8200"
+    env_file:
+      - .env
+    environment:
+      # Inside the shared network the database is reachable by service name on
+      # its container port, not the host-published one.
+      - MILTON_DB_HOST=db
+      - MILTON_DB_PORT=3306
+    networks:
+      - shrub
+
+networks:
+  shrub:
+    external: true
+    name: shrub_default
