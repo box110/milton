@@ -117,6 +117,24 @@ section{margin-bottom:40px}
        flex:none;font-weight:600}
 .tile:hover .qmark,.tile:focus-visible .qmark{border-color:var(--pos);color:var(--pos)}
 
+/* ---- verdict ---- */
+.verdict{display:inline-flex;align-items:center;gap:7px;font-weight:640;
+         font-size:13px;padding:5px 11px;border-radius:7px;border:1px solid}
+.verdict.reject{color:var(--neg);border-color:var(--neg)}
+.verdict.promote{color:var(--good);border-color:var(--good)}
+.reasons{margin:14px 0 0;padding-left:18px;font-size:13px;color:var(--ink-2)}
+.reasons li{margin-bottom:5px}
+.cmp{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+     gap:12px;margin-top:16px}
+.cmp .box{border:1px solid var(--border);border-radius:9px;padding:12px 14px}
+.cmp .box .h{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;
+             color:var(--muted);margin-bottom:8px}
+.cmp .box .row{display:flex;justify-content:space-between;gap:12px;
+               font-size:13px;padding:3px 0;font-variant-numeric:tabular-nums}
+.cmp .box .row span:first-child{color:var(--ink-2)}
+.move{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.arrowr{color:var(--muted);padding:0 6px}
+
 /* ---- tables ---- */
 table{border-collapse:collapse;width:100%;font-size:13.5px}
 th{text-align:left;font-weight:600;color:var(--muted);font-size:11.5px;
@@ -183,6 +201,11 @@ td.name{font-variant-numeric:normal;font-family:ui-monospace,SFMono-Regular,
   </section>
 
   <section>
+    <h2>Latest fit</h2>
+    <div class="card" id="fit"></div>
+  </section>
+
+  <section>
     <h2>Parameter vector</h2>
     <div class="card scroll"><div id="weights"></div></div>
     <p class="hint">Band edges are parameters too — the question isn't only how
@@ -234,6 +257,7 @@ function render(s) {
   renderChart(s.daily_ic);
   renderChartTable(s.daily_ic);
   renderHorizons(s.horizons);
+  renderFit(s.fit);
   renderWeights(s.weights);
 }
 
@@ -446,6 +470,61 @@ function renderHorizons(hs) {
       <td class="num">${fmt(h.t_stat, 2)}</td>
       <td class="num">${h.n_days}</td><td class="num">${h.n_obs}</td></tr>`).join("")}
     </tbody></table>`;
+}
+
+function renderFit(f) {
+  const host = document.getElementById("fit");
+  if (!f || !f.available) {
+    host.innerHTML = `<p class="chart-note">${(f && f.note) || "No fit yet."}</p>`;
+    return;
+  }
+  const sign = v => (v >= 0 ? "pos" : "neg");
+  host.innerHTML = `
+    <div class="chart-head">
+      <span class="verdict ${f.verdict}">${f.verdict === "promote"
+        ? "PROMOTE" : "REJECT"}</span>
+      <span style="font-size:12.5px;color:var(--ink-2)">
+        ${f.evaluations} evaluations · ${f.train_days} train / ${f.test_days} test days
+      </span>
+    </div>
+    <p class="chart-note">The search proposes; the gate decides. A candidate is
+    only ever a proposal — nothing here is live in shrub.</p>
+
+    <div class="cmp">
+      <div class="box"><div class="h">In sample (fitted)</div>
+        <div class="row"><span>incumbent</span><b>${fmt(f.train_incumbent_ic)}</b></div>
+        <div class="row"><span>candidate</span><b>${fmt(f.train_candidate_ic)}</b></div>
+      </div>
+      <div class="box"><div class="h">Out of sample (held out)</div>
+        <div class="row"><span>incumbent</span><b>${fmt(f.test_incumbent_ic)}</b></div>
+        <div class="row"><span>candidate</span><b>${fmt(f.test_candidate_ic)}</b></div>
+      </div>
+      <div class="box"><div class="h">Paired difference</div>
+        <div class="row"><span>mean per day</span>
+          <b class="value ${sign(f.paired_mean)}" style="font-size:13px">
+            ${fmt(f.paired_mean)}</b></div>
+        <div class="row"><span>t (need ≥ ${f.min_paired_t})</span>
+          <b>${fmt(f.paired_t, 2)}</b></div>
+      </div>
+      <div class="box"><div class="h">Watchlist size</div>
+        <div class="row"><span>incumbent</span><b>${f.selection_incumbent}</b></div>
+        <div class="row"><span>candidate</span><b>${f.selection_candidate}</b></div>
+      </div>
+    </div>
+
+    ${f.moves.length ? `<div style="margin-top:18px">
+      <div class="h" style="font-size:11px;text-transform:uppercase;
+        letter-spacing:0.06em;color:var(--muted);margin-bottom:8px">
+        Proposed moves</div>
+      ${f.moves.map(m => `<div class="move"><span
+        style="display:inline-block;min-width:150px">${m.name}</span
+        ><span style="color:var(--ink-2)">${m.from}</span
+        ><span class="arrowr">→</span><b>${m.to}</b></div>`).join("")}
+    </div>` : `<p class="chart-note" style="margin-top:16px">
+      No move improved on the incumbent.</p>`}
+
+    ${f.reasons.length ? `<ul class="reasons">
+      ${f.reasons.map(r => `<li>${r}</li>`).join("")}</ul>` : ""}`;
 }
 
 function renderWeights(ws) {

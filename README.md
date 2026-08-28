@@ -54,11 +54,26 @@ logged and which is recovered as a residual.
 | `screener.py` | shrub's scoring function with the constants as parameters |
 | `features.py` | logged picks + forward alpha -> labelled rows |
 | `objective.py` | mean daily rank IC, IR, t-stat |
+| `optimize.py` | coordinate descent from the incumbent, with shrinkage |
+| `gate.py` | chronological holdout, paired against the incumbent |
 | `db.py` | read-only access to shrub's MySQL |
 | `web.py` + `static/` | read-only UI over the loop |
 
-Not built yet: the optimiser, the out-of-sample promotion gate, the email
-approval loop, and the RAG replay harness.
+Latest fit, on live data — **rejected**, which is the gate working:
+
+```
+in sample    incumbent +0.0845   candidate +0.3761
+out of sample incumbent +0.2335   candidate +0.4694
+paired       +0.2359 per day, t = +3.55
+verdict      REJECT - only 7 usable test days, need 12
+```
+
+The search wants to drop the volume bonus and SMA-support term to zero, halve
+the MACD crossover weight, and roughly double both RSI terms. The improvement
+survives the holdout, but seven test days cannot tell that apart from luck, so
+it does not ship. It becomes decidable as days accumulate.
+
+Not built yet: the email approval loop and the RAG replay harness.
 
 ## Running
 

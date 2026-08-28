@@ -17,7 +17,9 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config, db
 from .features import build_dataset
+from .gate import MIN_PAIRED_T, MIN_TEST_DAYS, evaluate, split_by_time
 from .objective import score_weights
+from .optimize import SearchSpec, optimise
 from .screener import BAND_PARAMS, INCUMBENT, POINT_PARAMS, TUNABLE
 
 STATIC = Path(__file__).parent / "static"
@@ -37,11 +39,12 @@ PIPELINE = [
     {"id": "objective", "name": "Rank IC", "kind": "milton", "built": True,
      "detail": "Mean daily cross-sectional Spearman IC vs forward alpha, with "
                "IR and a t-stat."},
-    {"id": "optimize", "name": "Optimise", "kind": "milton", "built": False,
-     "detail": "Search the weight space for a higher out-of-sample IC."},
-    {"id": "gate", "name": "OOS gate", "kind": "milton", "built": False,
-     "detail": "Time-based holdout plus a margin over the incumbent. Its job is "
-               "to say no most of the time."},
+    {"id": "optimize", "name": "Optimise", "kind": "milton", "built": True,
+     "detail": "Coordinate descent from the incumbent, one parameter at a time, "
+               "paying a shrinkage penalty on every departure."},
+    {"id": "gate", "name": "OOS gate", "kind": "milton", "built": True,
+     "detail": "Chronological holdout, paired day-by-day against the incumbent. "
+               "Its job is to say no, and it usually does."},
     {"id": "approve", "name": "Your approval", "kind": "human", "built": False,
      "detail": "Emails a summary tagged [milton #N]; your reply approves or "
                "rejects. shrub's inbound router hands the reply back instead of "
@@ -102,6 +105,7 @@ async def state():
     daily = _daily_series(primary)
 
     return {
+        "fit": _fit(primary),
         "pipeline": PIPELINE,
         "weights": _weight_rows(),
         "dataset": {
@@ -113,6 +117,47 @@ async def state():
         "horizons": list(horizons.values()),
         "primary_horizon": config.PRIMARY_HORIZON,
         "daily_ic": daily,
+    }
+
+
+def _fit(picks) -> dict:
+    """Run the search and the gate, and report both. The candidate shown here
+    is never live — it is what the search proposes and what the gate made of
+    it, which is usually a rejection."""
+    train, test = split_by_time(picks, test_fraction=0.4)
+    if not train or not test:
+        return {"available": False,
+                "note": "not enough scored days to split into train and test yet"}
+
+    spec = SearchSpec(horizon=config.PRIMARY_HORIZON)
+    cand = optimise(train, spec=spec)
+    res = evaluate(train, test, cand.weights, INCUMBENT,
+                   horizon=config.PRIMARY_HORIZON)
+
+    incumbent_values = INCUMBENT.as_dict()
+    candidate_values = cand.weights.as_dict()
+    return {
+        "available": True,
+        "verdict": res.verdict,
+        "reasons": res.reasons,
+        "train_days": len({p.pick_date for p in train}),
+        "test_days": res.test_days,
+        "min_test_days": MIN_TEST_DAYS,
+        "min_paired_t": MIN_PAIRED_T,
+        "evaluations": cand.evaluations,
+        "train_incumbent_ic": score_weights(train, INCUMBENT,
+                                            horizon=config.PRIMARY_HORIZON).mean_ic,
+        "train_candidate_ic": cand.ic.mean_ic,
+        "test_incumbent_ic": res.test_incumbent.mean_ic,
+        "test_candidate_ic": res.test_candidate.mean_ic,
+        "paired_mean": res.paired_mean,
+        "paired_t": res.paired_t,
+        "selection_incumbent": res.selection_incumbent,
+        "selection_candidate": res.selection_candidate,
+        "moves": [
+            {"name": k, "from": incumbent_values[k], "to": candidate_values[k]}
+            for k in candidate_values if incumbent_values[k] != candidate_values[k]
+        ],
     }
 
 
