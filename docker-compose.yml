@@ -16,6 +16,10 @@ services:
       # its container port, not the host-published one.
       - MILTON_DB_HOST=db
       - MILTON_DB_PORT=3306
+    # Source is mounted read-only so UI edits need only a restart, not a
+    # rebuild. The image still carries a copy, so the service runs standalone.
+    volumes:
+      - ./milton:/app/milton:ro
     networks:
       - shrub
 

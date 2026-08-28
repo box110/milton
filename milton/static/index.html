@@ -98,6 +98,25 @@ section{margin-bottom:40px}
      z-index:10;white-space:nowrap}
 .tip .tip-ic{font-weight:640}
 
+/* Explainers for the stat tiles. Separate from the chart tooltip because this
+   one wraps and anchors to its tile rather than following the cursor. These
+   explain what a number MEANS — they never carry a value the tile itself
+   doesn't already show, so nothing is gated behind hover. */
+.explain{position:fixed;opacity:0;pointer-events:none;transition:opacity .12s;
+     background:var(--surface);border:1px solid var(--border);border-radius:9px;
+     padding:12px 14px;font-size:13px;line-height:1.5;color:var(--ink-2);
+     box-shadow:0 6px 22px rgba(0,0,0,.16);z-index:20;max-width:330px}
+.explain.show{opacity:1}
+.explain b{color:var(--ink);font-weight:620}
+.tile{position:relative}
+.tile:hover,.tile:focus-visible{border-color:var(--axis)}
+.tile:focus-visible{outline:2px solid var(--pos);outline-offset:2px}
+.tile .label{display:flex;align-items:center;gap:5px;justify-content:space-between}
+.qmark{width:14px;height:14px;border-radius:50%;border:1px solid var(--axis);
+       color:var(--muted);font-size:10px;line-height:12px;text-align:center;
+       flex:none;font-weight:600}
+.tile:hover .qmark,.tile:focus-visible .qmark{border-color:var(--pos);color:var(--pos)}
+
 /* ---- tables ---- */
 table{border-collapse:collapse;width:100%;font-size:13.5px}
 th{text-align:left;font-weight:600;color:var(--muted);font-size:11.5px;
@@ -171,6 +190,7 @@ td.name{font-variant-numeric:normal;font-family:ui-monospace,SFMono-Regular,
   </section>
 </div>
 <div class="tip" id="tip"></div>
+<div class="explain" id="explain" role="tooltip"></div>
 
 <script>
 /* Theme: an explicit choice stamps data-theme and wins over the OS setting in
@@ -240,26 +260,96 @@ function renderKpis(s) {
       value: `${s.dataset.replay_exact}/${s.dataset.replay_total}`,
       cls: exact ? "ok" : "neg",
       foot: exact ? "re-score matches shrub exactly"
-                  : "MISMATCH — IC below is untrustworthy" },
+                  : "MISMATCH — IC below is untrustworthy",
+      explain: `<b>Did we copy shrub's maths correctly?</b> Before trying to
+        improve the screener's scoring, we have to prove we can reproduce it.
+        We redo the arithmetic on every pick shrub ever scored and check we get
+        the same number back. All ${s.dataset.replay_total} match. If even one
+        didn't, every number below would be measuring the wrong function.` },
+
     { label: `Mean IC · ${primary.horizon}d`, value: fmt(primary.mean_ic),
-      cls: primary.mean_ic >= 0 ? "pos" : "neg", foot: "the bar to beat" },
+      cls: primary.mean_ic >= 0 ? "pos" : "neg", foot: "the bar to beat",
+      explain: `<b>Did the ranking actually predict anything?</b> Each day we
+        ask: did the stocks the screener scored highest really do better over
+        the next ${primary.horizon} trading days? +1 means perfect ordering, 0
+        means coin-flipping, −1 means exactly backwards. Picking stocks is
+        mostly noise, so ${fmt(primary.mean_ic, 2)} is a genuine edge rather
+        than a small one. New weights have to beat this.` },
+
     { label: "Information ratio", value: fmt(primary.information_ratio, 2),
-      cls: "", foot: "mean ÷ stdev" },
+      cls: "", foot: "mean ÷ stdev",
+      explain: `<b>Is the edge steady, or just a couple of lucky days?</b> The
+        average IC divided by how much it swings around day to day. A high
+        number means it works consistently; a low one means the average is
+        propped up by a few wild days. At ${fmt(primary.information_ratio, 2)}
+        the good days clearly outweigh the bad, but not overwhelmingly.` },
+
     { label: "t-statistic", value: fmt(primary.t_stat, 2), cls: "",
       foot: Math.abs(primary.t_stat) >= 2 ? "marginally significant"
-                                          : "not distinguishable from noise" },
+                                          : "not distinguishable from noise",
+      explain: `<b>Could this all just be chance?</b> Rough rule of thumb:
+        above 2 means "probably real", below 2 means "can't tell it from luck".
+        ${fmt(primary.t_stat, 2)} clears that bar — but only just, and it rests
+        on ${primary.n_days} days. This is the number the promotion gate will
+        care about most, because shipping weights on a lucky-looking result is
+        exactly how you end up chasing noise.` },
+
     { label: "Screening days", value: primary.n_days, cls: "",
-      foot: `${primary.n_obs} scored picks` },
+      foot: `${primary.n_obs} scored picks`,
+      explain: `<b>How many separate days we can measure.</b> Stocks are only
+        ever compared against others screened the <i>same day</i> — never
+        across days, because a market-wide rally would flatter everything at
+        once and look like skill. So days, not picks, are the real sample size,
+        and ${primary.n_days} is thin. This is the main limit on confidence
+        right now, and it grows on its own as shrub keeps screening.` },
+
     { label: "Labelled picks", value: s.dataset.picks, cls: "",
-      foot: s.dataset.dropped ? `${s.dataset.dropped} dropped` : "none dropped" },
+      foot: s.dataset.dropped ? `${s.dataset.dropped} dropped` : "none dropped",
+      explain: `<b>Picks where we know how the story ended.</b> "Labelled"
+        means the pick has an outcome attached — enough time has passed to see
+        what the stock did versus the market. A pick made yesterday can't be
+        scored at 20 days yet, so it isn't here.
+        ${s.dataset.dropped ? `${s.dataset.dropped} record(s) were incomplete
+        and dropped.` : "Every record was complete enough to use."}` },
   ];
+
   tiles.forEach(t => {
     const d = el("div", "tile");
-    d.append(el("div", "label", t.label),
-             el("div", "value " + t.cls, String(t.value)),
+    d.tabIndex = 0;
+    const label = el("div", "label");
+    label.append(el("span", null, t.label), el("span", "qmark", "?"));
+    d.append(label, el("div", "value " + t.cls, String(t.value)),
              el("div", "foot", t.foot));
+    attachExplainer(d, t.explain);
     k.append(d);
   });
+}
+
+/* Shown on hover AND keyboard focus, and dismissable with Escape — an
+   explanation reachable only by mouse isn't reachable by everyone. */
+function attachExplainer(node, html) {
+  const box = document.getElementById("explain");
+  const show = () => {
+    box.innerHTML = html;
+    box.classList.add("show");
+    const r = node.getBoundingClientRect();
+    box.style.left = Math.max(12,
+      Math.min(r.left, innerWidth - box.offsetWidth - 12)) + "px";
+    // Flip above the tile when there isn't room below it.
+    const below = r.bottom + 10;
+    box.style.top = (below + box.offsetHeight > innerHeight - 12
+      ? Math.max(12, r.top - box.offsetHeight - 10) : below) + "px";
+    node.setAttribute("aria-describedby", "explain");
+  };
+  const hide = () => {
+    box.classList.remove("show");
+    node.removeAttribute("aria-describedby");
+  };
+  node.addEventListener("mouseenter", show);
+  node.addEventListener("mouseleave", hide);
+  node.addEventListener("focus", show);
+  node.addEventListener("blur", hide);
+  node.addEventListener("keydown", e => { if (e.key === "Escape") hide(); });
 }
 
 /* Diverging bars: daily IC is signed around zero, so polarity is the job.
