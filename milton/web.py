@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config, db
@@ -20,9 +20,13 @@ from .features import build_dataset
 from .gate import MIN_PAIRED_T, MIN_TEST_DAYS, evaluate, split_by_time
 from .objective import score_weights
 from .optimize import SearchSpec, optimise
+from .approval import parse_decision
+from .proposals import APPROVED, ProposalStore
 from .screener import BAND_PARAMS, INCUMBENT, POINT_PARAMS, TUNABLE
 
 STATIC = Path(__file__).parent / "static"
+
+store = ProposalStore(config.STATE_DB)
 
 # The loop, in order. `built` is the honest state of the code, not a roadmap
 # aspiration — the UI colours stages by it.
@@ -45,7 +49,7 @@ PIPELINE = [
     {"id": "gate", "name": "OOS gate", "kind": "milton", "built": True,
      "detail": "Chronological holdout, paired day-by-day against the incumbent. "
                "Its job is to say no, and it usually does."},
-    {"id": "approve", "name": "Your approval", "kind": "human", "built": False,
+    {"id": "approve", "name": "Your approval", "kind": "human", "built": True,
      "detail": "Emails a summary tagged [milton #N]; your reply approves or "
                "rejects. shrub's inbound router hands the reply back instead of "
                "feeding it to the CEO agent."},
@@ -106,6 +110,10 @@ async def state():
 
     return {
         "fit": _fit(primary),
+        "proposals": {
+            "open": (lambda o: _proposal_json(o) if o else None)(store.open_proposal()),
+            "recent": [_proposal_json(p) for p in store.recent(limit=8)],
+        },
         "pipeline": PIPELINE,
         "weights": _weight_rows(),
         "dataset": {
@@ -185,6 +193,69 @@ def _daily_series(picks) -> list[dict]:
             continue
         out.append({"date": day.isoformat(), "ic": ic, "n": len(group)})
     return out
+
+
+def _proposal_json(p) -> dict:
+    return {
+        "id": p.id, "status": p.status,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "sent_at": p.sent_at.isoformat() if p.sent_at else None,
+        "decided_at": p.decided_at.isoformat() if p.decided_at else None,
+        "decided_by": p.decided_by, "note": p.note,
+        "horizon": p.horizon, "weights": p.weights, "gate": p.gate,
+    }
+
+
+@app.get("/api/proposals")
+async def proposals():
+    store.expire_stale()
+    return {"open": (lambda o: _proposal_json(o) if o else None)(store.open_proposal()),
+            "recent": [_proposal_json(p) for p in store.recent()]}
+
+
+@app.post("/api/approval")
+async def approval(request: Request):
+    """Receive an emailed reply, relayed by shrub's inbound router.
+
+    shrub intercepts `[milton #N]` subjects before its own operator->CEO branch
+    and posts the reply here. The decision is parsed strictly and applied at
+    most once; a repeat delivery reports what the proposal already was rather
+    than deciding it again."""
+    if config.INTERNAL_TOKEN and \
+            request.headers.get("X-Internal-Token") != config.INTERNAL_TOKEN:
+        return JSONResponse({"detail": "forbidden"}, status_code=403)
+    data = await request.json()
+    try:
+        proposal_id = int(data.get("proposal_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"detail": "proposal_id required"}, status_code=400)
+
+    body = data.get("body") or ""
+    decision, why = parse_decision(body)
+    if decision is None:
+        return {"status": "no_decision", "detail": why, "proposal_id": proposal_id}
+
+    proposal, outcome = store.decide(
+        proposal_id, decision, by=data.get("sender"), reply_text=body[:2000])
+    if outcome == "not_found":
+        return JSONResponse({"detail": f"no proposal #{proposal_id}"},
+                            status_code=404)
+    return {
+        "status": outcome, "decision": proposal.status,
+        "proposal_id": proposal_id,
+        # The caller emails this back to the sender, so it has to read as an
+        # answer to a person rather than an API response.
+        "detail": {
+            "applied": f"Recorded: proposal #{proposal_id} {proposal.status}.",
+            "already_decided": (f"Proposal #{proposal_id} was already "
+                                f"{proposal.status} — no change made."),
+            "expired": (f"Proposal #{proposal_id} expired before this reply "
+                        f"arrived, so it was not applied."),
+        }.get(outcome, outcome),
+        "writeback": (
+            "Recorded only — writing weights into shrub is not built yet."
+            if proposal.status == APPROVED else None),
+    }
 
 
 @app.get("/")

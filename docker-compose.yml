@@ -16,10 +16,15 @@ services:
       # its container port, not the host-published one.
       - MILTON_DB_HOST=db
       - MILTON_DB_PORT=3306
+      - MILTON_SHRUB_URL=http://app:8000
+      - MILTON_STATE_DB=/app/data/milton.sqlite3
     # Source is mounted read-only so UI edits need only a restart, not a
     # rebuild. The image still carries a copy, so the service runs standalone.
     volumes:
       - ./milton:/app/milton:ro
+      # Milton's own state (proposals + decisions). shrub's database is
+      # read-only to us, so this is the only thing milton writes.
+      - ./data:/app/data
     networks:
       - shrub
 

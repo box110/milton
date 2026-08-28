@@ -56,6 +56,9 @@ logged and which is recovered as a residual.
 | `objective.py` | mean daily rank IC, IR, t-stat |
 | `optimize.py` | coordinate descent from the incumbent, with shrinkage |
 | `gate.py` | chronological holdout, paired against the incumbent |
+| `proposals.py` | proposal + decision store (SQLite; shrub's DB is read-only) |
+| `approval.py` | strict parsing of an emailed decision |
+| `notify.py` | renders the ask; shrub sends it |
 | `db.py` | read-only access to shrub's MySQL |
 | `web.py` + `static/` | read-only UI over the loop |
 
@@ -73,7 +76,26 @@ the MACD crossover weight, and roughly double both RSI terms. The improvement
 survives the holdout, but seven test days cannot tell that apart from luck, so
 it does not ship. It becomes decidable as days accumulate.
 
-Not built yet: the email approval loop and the RAG replay harness.
+## Approval
+
+On a PROMOTE, `scripts/propose.py --send` raises a proposal and emails it,
+tagged `[milton #N]`. Replying APPROVE or REJECT on the first line records the
+decision. Nothing is emailed on a rejection — a notice every run trains you to
+ignore the mail, and the UI already shows what the gate has been turning down.
+
+Milton owns no mail credentials and never will. shrub has a working mailbox, so
+it sends on milton's behalf and forwards replies back. Those replies are
+intercepted by subject tag **before** shrub's operator-to-CEO branch: without
+that, a reply saying "approve" would reach the CEO agent and be read as a
+directive about trading.
+
+Parsing is deliberately narrow. An approval word must open a line; quoted
+history is ignored; "not yet", a question, or a reply containing both words all
+decide nothing. Decisions are final and idempotent, and proposals expire after
+seven days rather than being honoured late.
+
+Not built yet: writing approved weights into shrub, and the RAG replay
+harness.
 
 ## Running
 
