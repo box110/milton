@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Milton</title>
+<style>
+:root{
+  color-scheme: light;
+  --plane:#f9f9f7; --surface:#fcfcfb;
+  --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
+  --pos:#2a78d6; --neg:#e34948; --zero:#f0efec;
+  --good:#0ca30c; --pending:#898781;
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --plane:#0d0d0d; --surface:#1a1a19;
+    --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+    --pos:#3987e5; --neg:#e66767; --zero:#383835;
+    --good:#0ca30c; --pending:#898781;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --plane:#0d0d0d; --surface:#1a1a19;
+  --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+  --pos:#3987e5; --neg:#e66767; --zero:#383835;
+  --good:#0ca30c; --pending:#898781;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--plane); color:var(--ink);
+  font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:40px 24px 72px}
+header{margin-bottom:36px;display:flex;justify-content:space-between;
+       align-items:flex-start;gap:24px}
+h1{font-size:26px;font-weight:640;margin:0 0 6px;letter-spacing:-0.01em}
+.sub{color:var(--ink-2);margin:0;max-width:66ch}
+h2{font-size:13px;font-weight:620;text-transform:uppercase;letter-spacing:0.07em;
+   color:var(--muted);margin:0 0 14px}
+section{margin-bottom:40px}
+.card{background:var(--surface);border:1px solid var(--border);
+      border-radius:var(--radius);padding:20px}
+
+/* ---- pipeline ---- */
+/* The loop is a sequence, so it scrolls rather than wrapping — a wrapped
+   stage lands on its own row, stretches full width and loses the arrow, which
+   reads as a broken diagram rather than a continuing pipeline. */
+.flow{display:flex;flex-wrap:nowrap;gap:8px;align-items:stretch;
+      overflow-x:auto;padding-bottom:10px;scrollbar-width:thin}
+.stage{flex:0 0 154px;background:var(--surface);
+       border:1px solid var(--border);border-radius:var(--radius);
+       padding:12px 13px;position:relative;cursor:default}
+.stage.pending{border-style:dashed;background:transparent}
+.stage-top{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.dot.built{background:var(--good)} .dot.pending{background:var(--pending)}
+.stage-name{font-weight:600;font-size:13.5px;letter-spacing:-0.005em}
+.stage.pending .stage-name{color:var(--ink-2)}
+.stage-kind{font-size:10.5px;text-transform:uppercase;letter-spacing:0.06em;
+            color:var(--muted)}
+.stage-detail{font-size:12px;color:var(--ink-2);margin-top:7px;line-height:1.45}
+.stage.sink,.stage.source{flex-basis:168px}
+.arrow{align-self:center;color:var(--axis);flex:none;font-size:15px}
+.legend-row{display:flex;gap:18px;margin-top:14px;font-size:12px;color:var(--ink-2)}
+.legend-row span{display:flex;align-items:center;gap:6px}
+
+/* ---- stat tiles ---- */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:12px}
+.tile{background:var(--surface);border:1px solid var(--border);
+      border-radius:var(--radius);padding:15px 16px}
+.tile .label{font-size:11.5px;text-transform:uppercase;letter-spacing:0.06em;
+             color:var(--muted);margin-bottom:7px}
+.tile .value{font-size:29px;font-weight:600;letter-spacing:-0.02em;line-height:1.1}
+.tile .foot{font-size:12px;color:var(--ink-2);margin-top:5px}
+.value.pos{color:var(--pos)} .value.neg{color:var(--neg)}
+.value.ok{color:var(--good)}
+
+/* ---- chart ---- */
+.chart-head{display:flex;justify-content:space-between;align-items:baseline;
+            gap:16px;margin-bottom:4px;flex-wrap:wrap}
+.chart-title{font-size:15px;font-weight:600}
+.chart-note{font-size:12.5px;color:var(--ink-2);margin:0 0 16px;max-width:76ch}
+.toggle{background:none;border:1px solid var(--border);color:var(--ink-2);
+        border-radius:7px;padding:5px 11px;font:inherit;font-size:12.5px;
+        cursor:pointer}
+.toggle:hover{color:var(--ink)}
+.scroll{overflow-x:auto}
+.tip{position:fixed;pointer-events:none;opacity:0;transition:opacity .1s;
+     background:var(--surface);border:1px solid var(--border);border-radius:8px;
+     padding:8px 11px;font-size:12.5px;box-shadow:0 4px 14px rgba(0,0,0,.13);
+     z-index:10;white-space:nowrap}
+.tip .tip-ic{font-weight:640}
+
+/* ---- tables ---- */
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{text-align:left;font-weight:600;color:var(--muted);font-size:11.5px;
+   text-transform:uppercase;letter-spacing:0.05em;padding:0 12px 9px 0;
+   border-bottom:1px solid var(--grid)}
+td{padding:9px 12px 9px 0;border-bottom:1px solid var(--grid);
+   font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+td.name{font-variant-numeric:normal;font-family:ui-monospace,SFMono-Regular,
+        Menlo,monospace;font-size:12.5px}
+.num{text-align:right}
+.tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:5px;
+     border:1px solid var(--border);color:var(--ink-2)}
+.tag.no{color:var(--neg);border-color:var(--neg)}
+.hint{font-size:12.5px;color:var(--ink-2);margin:12px 0 0}
+.hidden{display:none}
+.err{color:var(--neg)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Milton</h1>
+      <p class="sub">Fits the weights shrub's research pipeline currently
+      guesses. Everything below is measured against live shrub data — stages
+      not yet built say so rather than showing placeholder numbers.</p>
+    </div>
+    <button class="toggle" id="themeToggle" title="Toggle light / dark">Dark</button>
+  </header>
+
+  <section>
+    <h2>The loop</h2>
+    <div class="flow" id="flow"></div>
+    <div class="legend-row">
+      <span><i class="dot built"></i> built and verified</span>
+      <span><i class="dot pending"></i> not built yet</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Incumbent weights, measured</h2>
+    <div class="kpis" id="kpis"></div>
+  </section>
+
+  <section>
+    <div class="card">
+      <div class="chart-head">
+        <div class="chart-title">Daily rank IC — incumbent weights, <span id="ph">20</span>-day horizon</div>
+        <button class="toggle" id="tableToggle" aria-expanded="false">Table view</button>
+      </div>
+      <p class="chart-note">One Spearman correlation per screening day, between
+      the score the screener assigned and the alpha each name actually
+      delivered. The mean is the objective; the spread is why a t-stat is
+      needed before shipping anything.</p>
+      <div class="scroll"><div id="chart"></div></div>
+      <div id="chartTable" class="hidden" style="margin-top:18px"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>By horizon</h2>
+    <div class="card scroll"><div id="horizons"></div></div>
+  </section>
+
+  <section>
+    <h2>Parameter vector</h2>
+    <div class="card scroll"><div id="weights"></div></div>
+    <p class="hint">Band edges are parameters too — the question isn't only how
+    many points an oversold RSI earns, but what counts as oversold.</p>
+  </section>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+/* Theme: an explicit choice stamps data-theme and wins over the OS setting in
+   both directions; with nothing stamped the CSS media query decides. */
+(function theme(){
+  const url = new URLSearchParams(location.search).get("theme");
+  const saved = url || localStorage.getItem("milton-theme");
+  if (saved === "dark" || saved === "light")
+    document.documentElement.setAttribute("data-theme", saved);
+  const btn = () => document.getElementById("themeToggle");
+  addEventListener("DOMContentLoaded", () => {
+    const b = btn(); if (!b) return;
+    const dark = () => document.documentElement.getAttribute("data-theme") === "dark"
+      || (!document.documentElement.hasAttribute("data-theme")
+          && matchMedia("(prefers-color-scheme: dark)").matches);
+    const sync = () => b.textContent = dark() ? "Light" : "Dark";
+    sync();
+    b.addEventListener("click", () => {
+      const next = dark() ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      try { localStorage.setItem("milton-theme", next); } catch (e) {}
+      sync();
+    });
+  });
+})();
+
+const fmt = (v, d = 4) => v === null || v === undefined || Number.isNaN(v)
+  ? "—" : (v >= 0 ? "+" : "") + v.toFixed(d);
+const el = (t, c, h) => { const n = document.createElement(t);
+  if (c) n.className = c; if (h !== undefined) n.innerHTML = h; return n; };
+
+fetch("/api/state").then(r => r.json()).then(render).catch(e => {
+  document.getElementById("flow").innerHTML =
+    `<p class="err">Could not load state: ${e}</p>`;
+});
+
+function render(s) {
+  renderFlow(s.pipeline);
+  renderKpis(s);
+  document.getElementById("ph").textContent = s.primary_horizon;
+  renderChart(s.daily_ic);
+  renderChartTable(s.daily_ic);
+  renderHorizons(s.horizons);
+  renderWeights(s.weights);
+}
+
+function renderFlow(stages) {
+  const flow = document.getElementById("flow");
+  stages.forEach((st, i) => {
+    const d = el("div", "stage " + st.kind + (st.built ? "" : " pending"));
+    const top = el("div", "stage-top");
+    top.append(el("i", "dot " + (st.built ? "built" : "pending")),
+               el("span", "stage-name", st.name));
+    d.append(top, el("div", "stage-kind", st.kind),
+             el("div", "stage-detail", st.detail));
+    flow.append(d);
+    if (i < stages.length - 1) flow.append(el("div", "arrow", "&rarr;"));
+  });
+}
+
+function renderKpis(s) {
+  const k = document.getElementById("kpis");
+  const primary = s.horizons.find(h => h.primary);
+  const exact = s.dataset.replay_exact === s.dataset.replay_total;
+  const tiles = [
+    { label: "Replay fidelity",
+      value: `${s.dataset.replay_exact}/${s.dataset.replay_total}`,
+      cls: exact ? "ok" : "neg",
+      foot: exact ? "re-score matches shrub exactly"
+                  : "MISMATCH — IC below is untrustworthy" },
+    { label: `Mean IC · ${primary.horizon}d`, value: fmt(primary.mean_ic),
+      cls: primary.mean_ic >= 0 ? "pos" : "neg", foot: "the bar to beat" },
+    { label: "Information ratio", value: fmt(primary.information_ratio, 2),
+      cls: "", foot: "mean ÷ stdev" },
+    { label: "t-statistic", value: fmt(primary.t_stat, 2), cls: "",
+      foot: Math.abs(primary.t_stat) >= 2 ? "marginally significant"
+                                          : "not distinguishable from noise" },
+    { label: "Screening days", value: primary.n_days, cls: "",
+      foot: `${primary.n_obs} scored picks` },
+    { label: "Labelled picks", value: s.dataset.picks, cls: "",
+      foot: s.dataset.dropped ? `${s.dataset.dropped} dropped` : "none dropped" },
+  ];
+  tiles.forEach(t => {
+    const d = el("div", "tile");
+    d.append(el("div", "label", t.label),
+             el("div", "value " + t.cls, String(t.value)),
+             el("div", "foot", t.foot));
+    k.append(d);
+  });
+}
+
+/* Diverging bars: daily IC is signed around zero, so polarity is the job.
+   Blue above / red below a neutral zero rule, magnitude by bar length. */
+function renderChart(daily) {
+  const host = document.getElementById("chart");
+  if (!daily.length) { host.innerHTML = "<p class='chart-note'>No scored days yet.</p>"; return; }
+  const W = Math.max(660, daily.length * 46), H = 260;
+  const M = { t: 18, r: 14, b: 46, l: 46 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const max = Math.max(0.5, ...daily.map(d => Math.abs(d.ic))) * 1.12;
+  const y = v => M.t + ih / 2 - (v / max) * (ih / 2);
+  const bw = Math.min(26, iw / daily.length - 8);
+
+  const ticks = [-max, -max / 2, 0, max / 2, max];
+  let g = "";
+  ticks.forEach(t => {
+    g += `<line x1="${M.l}" x2="${M.l + iw}" y1="${y(t)}" y2="${y(t)}"
+      stroke="${t === 0 ? 'var(--axis)' : 'var(--grid)'}" stroke-width="1"/>`;
+    g += `<text x="${M.l - 9}" y="${y(t) + 4}" text-anchor="end" font-size="11"
+      fill="var(--muted)" style="font-variant-numeric:tabular-nums">${t.toFixed(2)}</text>`;
+  });
+
+  let bars = "";
+  daily.forEach((d, i) => {
+    const cx = M.l + (i + 0.5) * (iw / daily.length);
+    const x = cx - bw / 2;
+    const top = d.ic >= 0 ? y(d.ic) : y(0);
+    const h = Math.max(2, Math.abs(y(d.ic) - y(0)));
+    const col = d.ic >= 0 ? "var(--pos)" : "var(--neg)";
+    // 4px rounded data-end, square against the zero baseline.
+    const r = Math.min(4, h);
+    const path = d.ic >= 0
+      ? `M${x},${top + h} L${x},${top + r} Q${x},${top} ${x + r},${top}
+         L${x + bw - r},${top} Q${x + bw},${top} ${x + bw},${top + r} L${x + bw},${top + h} Z`
+      : `M${x},${top} L${x},${top + h - r} Q${x},${top + h} ${x + r},${top + h}
+         L${x + bw - r},${top + h} Q${x + bw},${top + h} ${x + bw},${top + h - r} L${x + bw},${top} Z`;
+    bars += `<path d="${path}" fill="${col}"/>`;
+    // Hit target spans the full column so an 8px bar isn't a pinpoint.
+    bars += `<rect x="${cx - iw / daily.length / 2}" y="${M.t}"
+      width="${iw / daily.length}" height="${ih}" fill="transparent"
+      data-i="${i}" class="hit"/>`;
+    if (i % Math.ceil(daily.length / 9) === 0) {
+      bars += `<text x="${cx}" y="${M.t + ih + 20}" text-anchor="middle"
+        font-size="11" fill="var(--muted)">${d.date.slice(5)}</text>`;
+    }
+  });
+
+  host.innerHTML = `<svg width="${W}" height="${H}" role="img"
+    aria-label="Daily rank IC by screening day">${g}${bars}
+    <text x="${M.l}" y="${H - 8}" font-size="11" fill="var(--muted)">screening day</text>
+    </svg>`;
+
+  const tip = document.getElementById("tip");
+  host.querySelectorAll(".hit").forEach(h => {
+    h.addEventListener("mousemove", ev => {
+      const d = daily[+h.dataset.i];
+      tip.innerHTML = `<div class="tip-ic">IC ${fmt(d.ic)}</div>
+        <div style="color:var(--ink-2)">${d.date} · ${d.n} names</div>`;
+      tip.style.opacity = 1;
+      tip.style.left = Math.min(ev.clientX + 14, innerWidth - 190) + "px";
+      tip.style.top = (ev.clientY - 14) + "px";
+    });
+    h.addEventListener("mouseleave", () => tip.style.opacity = 0);
+  });
+}
+
+/* Every value reachable without hover. */
+function renderChartTable(daily) {
+  const host = document.getElementById("chartTable");
+  host.innerHTML = `<table><thead><tr><th>Day</th>
+    <th class="num">Names</th><th class="num">Rank IC</th></tr></thead><tbody>
+    ${daily.map(d => `<tr><td>${d.date}</td><td class="num">${d.n}</td>
+      <td class="num">${fmt(d.ic)}</td></tr>`).join("")}</tbody></table>`;
+  const btn = document.getElementById("tableToggle");
+  btn.addEventListener("click", () => {
+    const shown = !host.classList.toggle("hidden");
+    btn.textContent = shown ? "Hide table" : "Table view";
+    btn.setAttribute("aria-expanded", String(shown));
+  });
+}
+
+function renderHorizons(hs) {
+  document.getElementById("horizons").innerHTML = `<table><thead><tr>
+    <th>Horizon</th><th class="num">Mean IC</th><th class="num">Stdev</th>
+    <th class="num">IR</th><th class="num">t</th><th class="num">Days</th>
+    <th class="num">Picks</th></tr></thead><tbody>
+    ${hs.map(h => `<tr><td>${h.horizon}d${h.primary
+        ? ' <span class="tag">primary</span>' : ""}</td>
+      <td class="num" style="color:${h.mean_ic >= 0 ? "var(--pos)" : "var(--neg)"}">
+        ${fmt(h.mean_ic)}</td>
+      <td class="num">${h.stdev_ic.toFixed(3)}</td>
+      <td class="num">${fmt(h.information_ratio, 2)}</td>
+      <td class="num">${fmt(h.t_stat, 2)}</td>
+      <td class="num">${h.n_days}</td><td class="num">${h.n_obs}</td></tr>`).join("")}
+    </tbody></table>`;
+}
+
+function renderWeights(ws) {
+  document.getElementById("weights").innerHTML = `<table><thead><tr>
+    <th>Parameter</th><th>Kind</th><th class="num">Incumbent</th>
+    <th>Tunable</th></tr></thead><tbody>
+    ${ws.map(w => `<tr><td class="name">${w.name}</td>
+      <td>${w.group === "points" ? "points" : "band edge"}</td>
+      <td class="num">${w.value === null ? "—" : w.value}</td>
+      <td>${w.tunable ? '<span class="tag">yes</span>'
+        : `<span class="tag no">no</span>${w.note
+            ? ` <span style="color:var(--ink-2);font-size:12px">${w.note}</span>` : ""}`}
+      </td></tr>`).join("")}</tbody></table>`;
+}
+</script>
+</body>
+</html>

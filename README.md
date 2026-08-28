@@ -55,6 +55,7 @@ logged and which is recovered as a residual.
 | `features.py` | logged picks + forward alpha -> labelled rows |
 | `objective.py` | mean daily rank IC, IR, t-stat |
 | `db.py` | read-only access to shrub's MySQL |
+| `web.py` + `static/` | read-only UI over the loop |
 
 Not built yet: the optimiser, the out-of-sample promotion gate, the email
 approval loop, and the RAG replay harness.
@@ -66,7 +67,14 @@ cp .env.example .env          # fill in the read-only DB password
 mysql < scripts/create_ro_user.sql
 python scripts/baseline.py    # replay fidelity + incumbent IC
 pytest tests/ -q
+./scripts/run_ui.sh           # UI on http://localhost:8200
 ```
+
+The UI shows the loop stage by stage, the incumbent's measured IC, and the
+per-day dispersion behind it. Stages that aren't built report `built: false`
+and render dashed — a scaffold that shows plausible placeholder numbers is
+worse than no scaffold, because you start reasoning about results nothing
+computed.
 
 Milton holds SELECT-only credentials. Approved weights reach shrub through its
 own API, never through this connection.
