@@ -85,3 +85,40 @@ def test_build_dataset_reports_drops_instead_of_hiding_them():
     assert len(problems) == 2
     assert picks[0].macd_state == MACD_CROSS
     assert picks[0].rescore(INCUMBENT) == picks[0].stored_score
+
+
+def test_duplicate_symbol_days_are_collapsed():
+    """A research failure loop re-runs the screener many times a day, logging
+    the same names repeatedly. Each repeat carries the same forward return, so
+    keeping them inflates the sample without adding information."""
+    from datetime import datetime
+    rows = []
+    for i in range(5):                      # same symbol, same day, 5 times
+        rows.append(_row(i + 1, 105.0, 30.0, 2.0, -2.0, 1.5,
+                         datetime(2026, 7, 30, 13 + i, 0)))
+    rows.append(_row(99, 105.0, 30.0, 2.0, -2.0, 2.0,
+                     datetime(2026, 7, 31, 13, 0)))   # next day survives
+    picks, problems = build_dataset(rows)
+    assert len(picks) == 2
+    assert picks[0].pick_id == 1            # earliest row for the symbol-day
+    assert any("collapsed 4 duplicate" in p for p in problems)
+
+
+def test_dedupe_keeps_distinct_symbols_and_horizons():
+    from datetime import datetime
+    when = datetime(2026, 7, 30, 13, 0)
+    rows = [
+        _row(1, 105.0, 30.0, 2.0, -2.0, 1.5, when, horizon=20),
+        _row(2, 105.0, 30.0, 2.0, -2.0, 0.5, when, horizon=5),   # other horizon
+    ]
+    rows[1]["symbol"] = "AAPL"
+    picks, _ = build_dataset(rows)
+    assert len(picks) == 2
+
+
+def test_dedupe_can_be_turned_off():
+    from datetime import datetime
+    when = datetime(2026, 7, 30, 13, 0)
+    rows = [_row(i, 105.0, 30.0, 2.0, -2.0, 1.5, when) for i in (1, 2, 3)]
+    picks, _ = build_dataset(rows, dedupe=False)
+    assert len(picks) == 3

@@ -95,7 +95,35 @@ def build_pick(row: dict, w: ScreenerWeights = INCUMBENT) -> Pick:
     )
 
 
-def build_dataset(rows, w: ScreenerWeights = INCUMBENT) -> tuple[list[Pick], list[str]]:
+def dedupe_by_symbol_day(picks: list[Pick]) -> list[Pick]:
+    """Collapse to one observation per (symbol, day, horizon).
+
+    The unit of analysis is the screener's judgement about a symbol on a day,
+    and the forward return it is scored against is a property of that symbol
+    and that day — not of how many times the screener happened to run. Keeping
+    duplicates inflates the apparent sample without adding a single independent
+    observation, and drags each day's cross-section toward one heavily repeated
+    name.
+
+    This is not a one-off cleanup. On 2026-07-30 the research service was in a
+    failure loop: 172 cycles ran that day, each screening and logging its ~20
+    names before the economist call failed, leaving 6,900 rows over 21 distinct
+    symbols. That day alone was 82% of a test window, with an IC that meant
+    nothing. Any future outage of the same shape would do it again, so the
+    dataset defends against it rather than the incident being patched out.
+
+    The earliest row for a symbol-day wins: it is the reading the day's first
+    screen actually acted on."""
+    seen: dict[tuple[str, date, int], Pick] = {}
+    for p in sorted(picks, key=lambda x: x.pick_id):
+        key = (p.symbol, p.pick_date, p.horizon_days)
+        if key not in seen:
+            seen[key] = p
+    return sorted(seen.values(), key=lambda x: (x.pick_date, x.symbol))
+
+
+def build_dataset(rows, w: ScreenerWeights = INCUMBENT, *,
+                  dedupe: bool = True) -> tuple[list[Pick], list[str]]:
     """Build the dataset, collecting rather than raising on bad rows. Returns
     (picks, problems) so a caller can see how much was dropped and why — a
     silent drop rate is how a fit ends up trained on an unrepresentative
@@ -107,6 +135,13 @@ def build_dataset(rows, w: ScreenerWeights = INCUMBENT) -> tuple[list[Pick], lis
             picks.append(build_pick(row, w))
         except (DecompositionError, KeyError, TypeError, ValueError) as e:
             problems.append(f"pick {row.get('id')}: {e}")
+    if dedupe:
+        before = len(picks)
+        picks = dedupe_by_symbol_day(picks)
+        if before != len(picks):
+            problems.append(
+                f"collapsed {before - len(picks)} duplicate symbol-day row(s) "
+                f"(repeat screener runs, typically a research failure loop)")
     return picks, problems
 
 
