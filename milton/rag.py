@@ -31,11 +31,22 @@ import math
 from dataclasses import dataclass, fields, replace
 from datetime import date, datetime
 
-# Source types with enough live corpus to fit anything. The other five entries
-# in shrub's RELIABILITY_RANK rank nothing: earnings_transcript, press_release
-# and macro have never produced a document, prediction_market carries no ticker
-# so ticker-filtered retrieval cannot reach it, and analyst has 20 tagged
-# chunks. Fitting weights for them would be fitting noise to an empty set.
+# World-scoped sources: the same content applies to every ticker on a given
+# day. They CANNOT be fitted by this objective, and not for want of data.
+#
+# The objective is a within-day cross-sectional rank IC — it asks whether a
+# score ordered today's names correctly. A source that contributes an identical
+# value to every name on a day shifts the whole cross-section and changes no
+# ordering, so its weight has exactly zero effect on the measurement however
+# much of it accumulates. Both now reach the economist through their own
+# deterministic blocks rather than through ranked retrieval, which is the right
+# home for them: they inform the macro call, not the choice between two stocks.
+WORLD_SCOPED_SOURCES = ("macro", "prediction_market")
+
+# Company-scoped source types with enough live corpus to fit. The remaining
+# entries in shrub's RELIABILITY_RANK rank nothing measurable here:
+# earnings_transcript needs a paid FMP plan, press_release has no connector,
+# analyst has ~21 ticker-tagged documents, and the two above are world-scoped.
 FITTABLE_SOURCES = ("sec_filing", "news", "newsletter", "social")
 
 # shrub's incumbent values, for the sources that exist.

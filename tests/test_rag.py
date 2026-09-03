@@ -137,3 +137,33 @@ def test_optimiser_starts_from_and_can_return_the_incumbent():
     cand = optimise_sources(days, max_sweeps=1)
     assert cand.weights.as_dict().keys() == INCUMBENT.as_dict().keys()
     assert isinstance(cand.moves, list)
+
+
+# --- What cannot be fitted ------------------------------------------------
+
+def test_world_scoped_sources_are_excluded_from_the_fit():
+    """macro and prediction_market apply identically to every name on a day, so
+    no weight on them can change a within-day ordering. They are excluded on
+    that structural ground, not for lack of data."""
+    from milton.rag import FITTABLE_SOURCES, WORLD_SCOPED_SOURCES
+    assert set(WORLD_SCOPED_SOURCES).isdisjoint(FITTABLE_SOURCES)
+
+
+def test_a_source_constant_across_a_day_cannot_change_the_ranking():
+    """The reason, demonstrated: give every name on a day the same extra
+    evidence and the day's IC is unmoved."""
+    from milton.objective import spearman
+    day = date(2026, 8, 3)
+    names = [
+        _day(day, [Evidence("news", 1.0)], alpha=3.0, symbol="A"),
+        _day(day, [Evidence("news", 20.0)], alpha=1.0, symbol="B"),
+        _day(day, [Evidence("news", 40.0)], alpha=-2.0, symbol="C"),
+    ]
+    before = spearman([n.score(INCUMBENT) for n in names],
+                      [n.alpha for n in names])
+    shifted = [EvidenceDay(n.symbol, n.day, n.horizon_days, n.alpha,
+                           n.evidence + (Evidence("sec_filing", 0.0),))
+               for n in names]
+    after = spearman([n.score(INCUMBENT) for n in shifted],
+                     [n.alpha for n in shifted])
+    assert before == after

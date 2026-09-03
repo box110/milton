@@ -11,7 +11,10 @@ from collections import Counter
 
 from milton import config, db
 from milton.objective import rank_ic
-from milton.rag import FITTABLE_SOURCES, INCUMBENT, SourceWeights, build_evidence_days
+from milton.rag import (
+    FITTABLE_SOURCES, INCUMBENT, WORLD_SCOPED_SOURCES, SourceWeights,
+    build_evidence_days,
+)
 from milton.ragfit import evaluate_sources, optimise_sources, split_days
 
 
@@ -36,7 +39,14 @@ async def main(argv=None) -> int:
           f"{len({d.day for d in days})} distinct days "
           f"({empty} with no evidence in a {args.lookback}-day window)")
     for s in FITTABLE_SOURCES:
-        print(f"  {s:<12} {counts.get(s, 0):>8} chunks")
+        n = counts.get(s, 0)
+        note = ""
+        if n == 0:
+            note = "  <- no data in the labelled window; its weight does nothing"
+        print(f"  {s:<12} {n:>8} chunks{note}")
+    print(f"  (not fittable: {', '.join(WORLD_SCOPED_SOURCES)} — world-scoped, "
+          f"identical for every name on a day, so they cannot move a "
+          f"within-day ranking)")
 
     train, test = split_days(days, test_fraction=0.4)
     print(f"\ntrain {len({d.day for d in train})} days / "

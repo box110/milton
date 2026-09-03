@@ -129,9 +129,18 @@ in-sample and halved the held-out IC — textbook overfitting, caught. That is
 weak evidence *for* the incumbent ordering, at least for filings outranking
 everything else.
 
-Only three sources are fittable at all (`sec_filing`, `news`, `social`);
-`newsletter` ingestion began after the labelled window closes. Twenty-two
-distinct days is far too few to conclude anything, which the gate says.
+Only three sources are fittable at all. `newsletter` ingestion began after the
+labelled window closes, so its weight currently does nothing. And `macro` and
+`prediction_market` can never be fitted by this objective — not for want of
+data, but structurally: a within-day cross-sectional IC asks whether a score
+ordered *today's* names correctly, and a source contributing the same value to
+every name shifts the whole cross-section without changing any ordering. Both
+now reach the economist through their own deterministic blocks, which is the
+right home for them — they inform the macro call, not the choice between two
+stocks.
+
+Twenty-two distinct days is far too few to conclude anything, which the gate
+also says.
 
 Not built yet: writing approved weights into shrub.
 
