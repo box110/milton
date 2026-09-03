@@ -59,6 +59,8 @@ logged and which is recovered as a residual.
 | `proposals.py` | proposal + decision store (SQLite; shrub's DB is read-only) |
 | `approval.py` | strict parsing of an emailed decision |
 | `notify.py` | renders the ask; shrub sends it |
+| `rag.py` | retrieval source weights + top-k evidence scoring |
+| `ragfit.py` | source-weight search and its gate |
 | `db.py` | read-only access to shrub's MySQL |
 | `web.py` + `static/` | read-only UI over the loop |
 
@@ -94,8 +96,44 @@ history is ignored; "not yet", a question, or a reply containing both words all
 decide nothing. Decisions are final and idempotent, and proposals expire after
 seven days rather than being honoured late.
 
-Not built yet: writing approved weights into shrub, and the RAG replay
-harness.
+## Retrieval source weights
+
+Fitting these is a harder problem than the screener's, and the limits are worth
+stating rather than discovering later.
+
+There is no label. Nothing records whether a retrieved chunk was the right one,
+so the question is reframed into one the data can answer: *does evidence from
+source S, near date D, carry information about ticker T's subsequent return?*
+That measures **predictiveness, not truthfulness**. A scrupulous source scores
+nothing here if what it reports is already priced; a junk source scores well if
+it moves crowds. For a ranking that feeds a return-seeking process that is the
+defensible criterion — but a weight fitted this way must never be described as
+a measure of whether a source tells the truth.
+
+Scoring takes the **top 3** chunks, matching `_corpus_evidence_block`, not a
+sum. Summing was the obvious first attempt and it was wrong: social is 91% of
+the ticker-tagged corpus, so a sum made the score a mention count wearing a
+reliability weight. What a weight actually decides is which few chunks get
+read.
+
+Result on shrub's corpus — **rejected, and informatively so**:
+
+```
+incumbent  train +0.0136   test +0.2176
+candidate  train +0.0474   test +0.0682
+paired     -0.1494, t = -2.63 over 9 test days
+```
+
+The search wanted to downweight `sec_filing` from 1.0 to 0.4. It improved
+in-sample and halved the held-out IC — textbook overfitting, caught. That is
+weak evidence *for* the incumbent ordering, at least for filings outranking
+everything else.
+
+Only three sources are fittable at all (`sec_filing`, `news`, `social`);
+`newsletter` ingestion began after the labelled window closes. Twenty-two
+distinct days is far too few to conclude anything, which the gate says.
+
+Not built yet: writing approved weights into shrub.
 
 ## Running
 

@@ -68,3 +68,29 @@ async def screener_picks() -> list[dict]:
             except ValueError:
                 r["source_signals"] = {}
     return rows
+
+
+# Evidence retrievable for each scored symbol-day: every chunk about that
+# ticker published in the lookback window BEFORE the pick. The window bound is
+# the point of the query — using anything published after the pick date would
+# score the weights against information that did not exist yet, which is the
+# easiest way to build a backtest that works beautifully and means nothing.
+_EVIDENCE_SQL = """
+SELECT p.symbol, DATE(p.created_at) AS pick_date, r.horizon_days, r.alpha,
+       c.source_type,
+       TIMESTAMPDIFF(HOUR, c.published_at, p.created_at) / 24.0 AS age_days
+FROM discovery_picks p
+JOIN discovery_pick_returns r ON r.pick_id = p.id
+LEFT JOIN research_chunks c
+       ON c.ticker = p.symbol
+      AND c.published_at <= p.created_at
+      AND c.published_at >= DATE_SUB(p.created_at, INTERVAL %s DAY)
+WHERE p.scout_model = 'screener'
+  AND r.alpha IS NOT NULL
+  AND r.horizon_days = %s
+ORDER BY p.created_at, p.symbol
+"""
+
+
+async def evidence_rows(horizon: int = 20, lookback_days: int = 90) -> list[dict]:
+    return await fetchall(_EVIDENCE_SQL, (int(lookback_days), int(horizon)))
