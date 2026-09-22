@@ -32,3 +32,8 @@ STATE_DB = os.getenv("MILTON_STATE_DB", "/app/data/milton.sqlite3")
 # secondary check that a fit hasn't simply overfit one horizon.
 PRIMARY_HORIZON = 20
 SECONDARY_HORIZON = 5
+
+# Hour (UTC) at which the daily fit runs. Default 21:00 UTC is after the US
+# close and after the discovery worker's afternoon backtester pass, so the day's
+# newly scored picks are already in.
+PROPOSE_HOUR_UTC = int(os.getenv("MILTON_PROPOSE_HOUR_UTC", "21"))

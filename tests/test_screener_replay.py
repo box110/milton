@@ -63,12 +63,14 @@ def test_unexplained_residual_raises_rather_than_guessing():
         macd_state_from_residual(77.0, 30.0, -2.0, 2.0)
 
 
-def _row(pick_id, score_val, rsi, vol, sma, alpha, when, horizon=20):
+def _row(pick_id, score_val, rsi, vol, sma, alpha, when, horizon=20,
+         regime_fit=False):
     return {
         "id": pick_id, "symbol": "AAPL", "created_at": when,
         "horizon_days": horizon, "alpha": alpha,
         "source_signals": {"score": score_val, "rsi": rsi,
-                           "volume_ratio": vol, "price_vs_sma20": sma},
+                           "volume_ratio": vol, "price_vs_sma20": sma,
+                           "regime_fit": regime_fit},
     }
 
 
@@ -122,3 +124,56 @@ def test_dedupe_can_be_turned_off():
     rows = [_row(i, 105.0, 30.0, 2.0, -2.0, 1.5, when) for i in (1, 2, 3)]
     picks, _ = build_dataset(rows, dedupe=False)
     assert len(picks) == 3
+
+
+# --- Macro regime fit -----------------------------------------------------
+#
+# shrub added a flat bonus on 2026-09-09 for names in the active regime's
+# rotation basket (commit ef1614c). Milton's decomposition guard caught it
+# immediately — 55 rows failed with "residual 20.0, which is not a MACD term"
+# rather than silently mis-attributing a fifth of the score to MACD.
+
+def test_regime_fit_adds_its_bonus():
+    plain = score(30.0, MACD_NONE, None, None, INCUMBENT)
+    lifted = score(30.0, MACD_NONE, None, None, INCUMBENT, regime_fit=True)
+    assert lifted - plain == INCUMBENT.regime_fit
+
+
+def test_regime_fit_is_tunable_like_any_other_point_weight():
+    from milton.screener import POINT_PARAMS
+    assert "regime_fit" in POINT_PARAMS
+    w = INCUMBENT.replace(regime_fit=0.0)
+    assert score(30.0, MACD_NONE, None, None, w, regime_fit=True) == 30.0
+
+
+def test_the_residual_accounts_for_regime_fit_before_blaming_macd():
+    """The bug this fixes: a regime-lifted pick with no MACD signal leaves a
+    residual of 20, which is not a MACD value, so the row was dropped."""
+    total = score(30.0, MACD_NONE, -2.0, None, INCUMBENT, regime_fit=True)
+    assert total == 70.0
+    assert macd_state_from_residual(total, 30.0, -2.0, None,
+                                    regime_fit=True) == MACD_NONE
+    with pytest.raises(DecompositionError):
+        macd_state_from_residual(total, 30.0, -2.0, None, regime_fit=False)
+
+
+def test_regime_lifted_rows_now_decompose_and_replay_exactly():
+    from datetime import datetime
+    when = datetime(2026, 9, 15, 13, 30)
+    rows = [_row(1, 70.0, 30.0, None, -2.0, 1.5, when, regime_fit=True),
+            _row(2, 105.0, 30.0, 2.0, -2.0, 0.5, when, regime_fit=False)]
+    rows[1]["symbol"] = "MSFT"
+    picks, problems = build_dataset(rows)
+    assert problems == []
+    for p in picks:
+        assert p.rescore(INCUMBENT) == p.stored_score
+
+
+def test_older_rows_without_the_signal_are_treated_as_not_lifted():
+    """The term did not exist before 2026-09-09, so its absence is False, not
+    unknown — and those rows must still decompose."""
+    from datetime import datetime
+    row = _row(1, 105.0, 30.0, 2.0, -2.0, 1.5, datetime(2026, 8, 3, 13, 30))
+    del row["source_signals"]["regime_fit"]
+    picks, problems = build_dataset([row])
+    assert problems == [] and picks[0].regime_fit is False

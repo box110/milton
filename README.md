@@ -56,6 +56,7 @@ logged and which is recovered as a residual.
 | `objective.py` | mean daily rank IC, IR, t-stat |
 | `optimize.py` | coordinate descent from the incumbent, with shrinkage |
 | `gate.py` | chronological holdout, paired against the incumbent |
+| `scheduler.py` | daily fit; raises a proposal only when the gate allows |
 | `proposals.py` | proposal + decision store (SQLite; shrub's DB is read-only) |
 | `approval.py` | strict parsing of an emailed decision |
 | `notify.py` | renders the ask; shrub sends it |
@@ -80,7 +81,12 @@ it does not ship. It becomes decidable as days accumulate.
 
 ## Approval
 
-On a PROMOTE, `scripts/propose.py --send` raises a proposal and emails it,
+The fit runs once a day (21:00 UTC by default, after the close and after the
+afternoon backtester pass). On a PROMOTE it raises a proposal and emails it;
+on anything else it records the verdict and stays quiet. `scripts/propose.py`
+does the same thing by hand.
+
+Mail goes out only on a PROMOTE,
 tagged `[milton #N]`. Replying APPROVE or REJECT on the first line records the
 decision. Nothing is emailed on a rejection — a notice every run trains you to
 ignore the mail, and the UI already shows what the gate has been turning down.

@@ -19,7 +19,7 @@ from datetime import date
 
 from .screener import (
     INCUMBENT, MACD_BULLISH, MACD_CROSS, MACD_NONE,
-    ScreenerWeights, rsi_points, sma_points, volume_points, score,
+    ScreenerWeights, regime_points, rsi_points, sma_points, volume_points, score,
 )
 
 
@@ -38,10 +38,14 @@ class Pick:
     stored_score: float
     # Outcome. `alpha` is the pick's return minus SPY's over the same sessions.
     alpha: float
+    # Whether the macro-regime term fired. Logged as a boolean from 2026-09-09;
+    # defaulted rather than required because it is absent on every older row,
+    # where False is not a guess but the truth — the term did not exist yet.
+    regime_fit: bool = False
 
     def rescore(self, w: ScreenerWeights) -> float:
         return score(self.rsi, self.macd_state, self.price_vs_sma20,
-                     self.volume_ratio, w)
+                     self.volume_ratio, w, regime_fit=self.regime_fit)
 
 
 class DecompositionError(ValueError):
@@ -49,7 +53,8 @@ class DecompositionError(ValueError):
 
 
 def macd_state_from_residual(stored_score: float, rsi, price_vs_sma20,
-                             volume_ratio, w: ScreenerWeights = INCUMBENT) -> str:
+                             volume_ratio, w: ScreenerWeights = INCUMBENT,
+                             regime_fit: bool = False) -> str:
     """Recover the MACD term shrub applied but didn't log.
 
     Raises DecompositionError when the leftover isn't one of the three values
@@ -58,7 +63,7 @@ def macd_state_from_residual(stored_score: float, rsi, price_vs_sma20,
     top. Loud is correct here.
     """
     explained = (rsi_points(rsi, w) + sma_points(price_vs_sma20, w)
-                 + volume_points(volume_ratio, w))
+                 + volume_points(volume_ratio, w) + regime_points(regime_fit, w))
     residual = round(stored_score - explained, 6)
     if residual == w.macd_cross:
         return MACD_CROSS
@@ -81,6 +86,7 @@ def build_pick(row: dict, w: ScreenerWeights = INCUMBENT) -> Pick:
     stored = _f(signals.get("score"))
     if stored is None:
         raise DecompositionError(f"pick {row.get('id')} has no stored score")
+    regime_fit = bool(signals.get("regime_fit"))
     return Pick(
         pick_id=int(row["id"]),
         symbol=str(row["symbol"]),
@@ -89,7 +95,9 @@ def build_pick(row: dict, w: ScreenerWeights = INCUMBENT) -> Pick:
         rsi=rsi,
         volume_ratio=volume_ratio,
         price_vs_sma20=price_vs_sma20,
-        macd_state=macd_state_from_residual(stored, rsi, price_vs_sma20, volume_ratio, w),
+        macd_state=macd_state_from_residual(
+            stored, rsi, price_vs_sma20, volume_ratio, w, regime_fit=regime_fit),
+        regime_fit=regime_fit,
         stored_score=stored,
         alpha=float(row["alpha"]),
     )

@@ -9,6 +9,8 @@ about results that were never computed.
 """
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -22,6 +24,7 @@ from .objective import score_weights
 from .optimize import SearchSpec, optimise
 from .approval import parse_decision
 from .proposals import APPROVED, ProposalStore
+from . import scheduler
 from .screener import BAND_PARAMS, INCUMBENT, POINT_PARAMS, TUNABLE
 
 STATIC = Path(__file__).parent / "static"
@@ -84,7 +87,34 @@ def _weight_rows() -> list[dict]:
     return rows
 
 
-app = FastAPI(title="Milton")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start the daily fit. Nothing ran the loop before this — propose.py was
+    only ever invoked by hand, so a candidate could clear the gate and nobody
+    would hear about it."""
+    task = asyncio.create_task(scheduler.loop(store))
+    yield
+    scheduler.state.enabled = False
+    task.cancel()
+
+
+app = FastAPI(title="Milton", lifespan=lifespan)
+
+
+@app.get("/api/scheduler")
+async def scheduler_status():
+    return scheduler.state.status
+
+
+@app.post("/api/scheduler/run")
+async def scheduler_run(request: Request):
+    """Run the daily fit now. `send=false` reports what would happen without
+    raising a proposal or sending mail."""
+    if config.INTERNAL_TOKEN and \
+            request.headers.get("X-Internal-Token") != config.INTERNAL_TOKEN:
+        return JSONResponse({"detail": "forbidden"}, status_code=403)
+    body = await request.json() if request.headers.get("content-length") else {}
+    return await scheduler.run_once(store, send=bool(body.get("send", False)))
 
 
 @app.get("/api/state")
@@ -110,6 +140,7 @@ async def state():
 
     return {
         "fit": _fit(primary),
+        "scheduler": scheduler.state.status,
         "proposals": {
             "open": (lambda o: _proposal_json(o) if o else None)(store.open_proposal()),
             "recent": [_proposal_json(p) for p in store.recent(limit=8)],

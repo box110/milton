@@ -40,6 +40,13 @@ class ScreenerWeights:
     sma_support: float = 20.0
     sma_above: float = 10.0
     volume_high: float = 20.0
+    # Added to shrub 2026-09-09. The only non-technical term: a name in the
+    # active macro regime's rotation basket gets a flat bonus, which is what
+    # lets the screener surface a rotation candidate the tape has not started
+    # confirming yet. Logged as a boolean, so unlike MACD it needs no residual
+    # inference — and unlike MACD it can be measured directly against forward
+    # returns, which is the whole question about it.
+    regime_fit: float = 20.0
 
     # Band edges.
     rsi_oversold_lo: float = 25.0
@@ -62,7 +69,7 @@ INCUMBENT = ScreenerWeights()
 # MACD points are tunable (the state is recoverable); MACD *bands* are not,
 # because the histogram was never logged.
 POINT_PARAMS = ("rsi_oversold", "rsi_recovering", "macd_cross", "macd_bullish",
-                "sma_support", "sma_above", "volume_high")
+                "sma_support", "sma_above", "volume_high", "regime_fit")
 BAND_PARAMS = ("rsi_oversold_lo", "rsi_oversold_hi", "rsi_recovering_hi",
                "sma_support_lo", "sma_above_hi", "volume_ratio_min")
 TUNABLE = POINT_PARAMS + BAND_PARAMS
@@ -108,9 +115,15 @@ def volume_points(volume_ratio: float | None, w: ScreenerWeights) -> float:
     return w.volume_high if volume_ratio > w.volume_ratio_min else 0.0
 
 
+def regime_points(regime_fit, w: ScreenerWeights) -> float:
+    """Flat bonus for sitting in the active regime's rotation basket."""
+    return w.regime_fit if regime_fit else 0.0
+
+
 def score(rsi, macd_state, price_vs_sma20, volume_ratio,
-          w: ScreenerWeights = INCUMBENT) -> float:
+          w: ScreenerWeights = INCUMBENT, regime_fit: bool = False) -> float:
     """Total screener score under `w`. With INCUMBENT this equals the score
     shrub actually recorded."""
     return (rsi_points(rsi, w) + macd_points(macd_state, w)
-            + sma_points(price_vs_sma20, w) + volume_points(volume_ratio, w))
+            + sma_points(price_vs_sma20, w) + volume_points(volume_ratio, w)
+            + regime_points(regime_fit, w))

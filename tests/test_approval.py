@@ -153,3 +153,64 @@ def test_render_includes_the_evidence_and_the_tag():
     # Out-of-sample must be present and labelled as the one that counts.
     assert "out of sample" in body
     assert "should not be trusted" in body
+
+
+# --- Scheduler ------------------------------------------------------------
+#
+# Nothing ran the loop before this: propose.py was only ever invoked by hand,
+# so a candidate could clear the gate and nobody would hear about it.
+
+def test_scheduler_does_not_raise_a_second_open_proposal(store, monkeypatch):
+    """Two live offers and one reply is an ambiguity with no safe resolution,
+    so a pending proposal blocks the next one rather than superseding it
+    silently and mailing again."""
+    import asyncio
+
+    from milton import scheduler
+
+    existing = _make(store)
+    assert existing.status == PENDING
+
+    async def fake_rows():
+        return []
+    monkeypatch.setattr(scheduler.db, "screener_picks", fake_rows)
+    monkeypatch.setattr(scheduler, "build_dataset", lambda rows: ([], []))
+
+    # Drive run_once past the fit to the guard under test. The halves only
+    # need a pick_date, which is all the gate summary reads from them.
+    from datetime import date as _d
+    stub = type("P", (), {"pick_date": _d(2026, 9, 1)})()
+    monkeypatch.setattr(scheduler, "split_by_time",
+                        lambda p, test_fraction=0.4: ([stub], [stub]))
+
+    class _C:
+        weights = type("W", (), {"as_dict": staticmethod(lambda: {})})()
+        ic = type("I", (), {"mean_ic": 0.0})()
+    monkeypatch.setattr(scheduler, "optimise", lambda train, spec=None: _C())
+
+    class _R:
+        verdict, reasons, promoted = "promote", [], True
+        test_days, paired_mean, paired_t = 20, 0.1, 3.0
+        selection_incumbent = selection_candidate = 10
+        test_incumbent = type("X", (), {"mean_ic": 0.1})()
+        test_candidate = type("X", (), {"mean_ic": 0.2})()
+    monkeypatch.setattr(scheduler, "evaluate",
+                        lambda *a, **k: _R())
+    monkeypatch.setattr(scheduler, "score_weights",
+                        lambda *a, **k: type("X", (), {"mean_ic": 0.1})())
+    # ScreenerWeights is frozen, so swap the whole object rather than a method.
+    monkeypatch.setattr(scheduler, "INCUMBENT",
+                        type("W", (), {"as_dict": staticmethod(lambda: {})})())
+
+    out = asyncio.run(scheduler.run_once(store, send=False))
+    assert out["verdict"] == "held"
+    assert "awaiting a decision" in out["reasons"][0]
+    assert store.get(existing.id).status == PENDING     # not superseded
+
+
+def test_scheduler_status_is_observable():
+    from milton.scheduler import SchedulerState
+    st = SchedulerState()
+    assert st.status["runs"] == 0
+    assert st.status["last_run"] is None
+    assert "run_hour_utc" in st.status
